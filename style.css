@@ -48,33 +48,52 @@ html, body {
 
 /* Video Container */
 .video-container {
-  position: relative;
-  width: 100%;
-  height: 100%;
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
   height: 100dvh;
   background-color: #000;
   display: flex;
   justify-content: center;
   align-items: center;
   overflow: hidden;
+  z-index: 1;
 }
 
-.video-container video {
+.video-container video,
+video#mainVideo {
+  display: block;
   width: 100%;
   height: 100%;
   max-width: 100vw;
   max-height: 100dvh;
-  object-fit: contain;
+  min-width: 0;
+  min-height: 0;
+  flex: 0 1 auto;
+  object-fit: contain !important;
+  object-position: center center !important;
   background-color: #000;
+  pointer-events: auto;
 }
 
-/* Hide native controls */
-video::-webkit-media-controls {
+/* Hide all native media controls unconditionally */
+video::-webkit-media-controls,
+video::-webkit-media-controls-enclosure,
+video::-webkit-media-controls-panel,
+video::-webkit-media-controls-play-button,
+video::-webkit-media-controls-timeline,
+video::-webkit-media-controls-current-time-display,
+video::-webkit-media-controls-time-remaining-display,
+video::-webkit-media-controls-mute-button,
+video::-webkit-media-controls-toggle-closed-captions-button,
+video::-webkit-media-controls-volume-slider,
+video::-moz-media-controls,
+*::-moz-media-controls {
   display: none !important;
-}
-
-video::-webkit-media-controls-enclosure {
-  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
 /* Live badge — bottom left */

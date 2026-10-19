@@ -24,11 +24,10 @@ const panelPipBtn = document.getElementById('panelPipBtn');
 let lastVolume = 0.8;
 let captionsOn = false;
 let micStream = null;
-let pipWindow = null;
-let pipStreamVideo = null;
+let pipVideoElement = null;
 
 function ensurePlaying() {
-  if (video.paused) {
+  if (video && video.paused) {
     video.play().catch((err) => {
       console.log('Autoplay waiting for interaction:', err);
     });
@@ -109,99 +108,69 @@ async function toggleFullscreen() {
   }
 }
 
+// Native Picture-in-Picture without timeline or slidebar
 async function togglePictureInPicture() {
   try {
-    // 1. If custom Document PiP window is open, close it
-    if (pipWindow && !pipWindow.closed) {
-      pipWindow.close();
-      pipWindow = null;
-      return;
-    }
-
-    // 2. If standard PiP is open, exit it
+    // If standard Picture-in-Picture is active, exit it
     if (document.pictureInPictureElement) {
       await document.exitPictureInPicture();
+      if (pipBtn) pipBtn.classList.remove('active');
       return;
     }
 
-    // 3. Document Picture-in-Picture (Chrome 116+)
-    // Opens a true floating live window without ANY video timeline or slide bar!
-    if ('documentPictureInPicture' in window) {
-      const aspectRatio = video.videoWidth && video.videoHeight ? (video.videoWidth / video.videoHeight) : (16 / 9);
-      const pipHeight = 360;
-      const pipWidth = Math.round(pipHeight * aspectRatio);
+    ensurePlaying();
 
-      pipWindow = await window.documentPictureInPicture.requestWindow({
-        width: pipWidth,
-        height: pipHeight
-      });
-
-      // Copy stylesheet links into PiP window
-      [...document.querySelectorAll('link[rel="stylesheet"], style')].forEach((node) => {
-        pipWindow.document.head.appendChild(node.cloneNode(true));
-      });
-
-      // Container for PiP
-      const pipWrapper = document.createElement('div');
-      pipWrapper.style.cssText = 'position:fixed;inset:0;background:#000;display:flex;justify-content:center;align-items:center;overflow:hidden;';
-
-      const parent = video.parentNode;
-      const nextSibling = video.nextSibling;
-      pipWrapper.appendChild(video);
-
-      // Add live badge inside the floating pop-up
-      const liveBadge = document.querySelector('.live-badge');
-      if (liveBadge) {
-        pipWrapper.appendChild(liveBadge.cloneNode(true));
+    // Capture the active stream from the video element
+    const captureFn = video.captureStream || video.mozCaptureStream;
+    let stream = null;
+    if (typeof captureFn === 'function') {
+      try {
+        stream = captureFn.call(video);
+      } catch (err) {
+        console.warn('captureStream call error:', err);
       }
-
-      pipWindow.document.body.style.margin = '0';
-      pipWindow.document.body.style.background = '#000';
-      pipWindow.document.body.appendChild(pipWrapper);
-
-      ensurePlaying();
-      if (pipBtn) pipBtn.classList.add('active');
-
-      pipWindow.addEventListener('pagehide', () => {
-        if (nextSibling) {
-          parent.insertBefore(video, nextSibling);
-        } else {
-          parent.appendChild(video);
-        }
-        pipWindow = null;
-        if (pipBtn) pipBtn.classList.remove('active');
-        ensurePlaying();
-      });
-      return;
     }
 
-    // 4. Fallback: Stream PiP with Infinite duration (removes timeline in native PiP)
-    if (typeof video.captureStream === 'function' || typeof video.mozCaptureStream === 'function') {
-      const captureFn = video.captureStream || video.mozCaptureStream;
-      const stream = captureFn.call(video);
-      if (!pipStreamVideo) {
-        pipStreamVideo = document.createElement('video');
-        pipStreamVideo.muted = true;
-        pipStreamVideo.playsInline = true;
-        pipStreamVideo.style.cssText = 'position:fixed;top:-9999px;opacity:0;pointer-events:none;';
-        document.body.appendChild(pipStreamVideo);
+    // Stream-based native PiP:
+    // When a video element plays a MediaStream, its duration is positive Infinity.
+    // The browser recognizes it as a live stream and hides the timeline slider, progress bar, and seek controls!
+    if (stream) {
+      if (!pipVideoElement) {
+        pipVideoElement = document.createElement('video');
+        pipVideoElement.muted = true;
+        pipVideoElement.playsInline = true;
+        pipVideoElement.setAttribute('playsinline', '');
+        pipVideoElement.setAttribute('webkit-playsinline', '');
+        // Keep in DOM with minimal size so browser compositor active-stream pipe renders
+        pipVideoElement.style.cssText = 'position:fixed;bottom:0;right:0;width:4px;height:4px;opacity:0.01;pointer-events:none;z-index:-10;';
+        document.body.appendChild(pipVideoElement);
       }
-      pipStreamVideo.srcObject = stream;
-      await pipStreamVideo.play();
-      await pipStreamVideo.requestPictureInPicture();
+
+      pipVideoElement.srcObject = stream;
+      await pipVideoElement.play();
+      await pipVideoElement.requestPictureInPicture();
+
       if (pipBtn) pipBtn.classList.add('active');
-      pipStreamVideo.addEventListener('leavepictureinpicture', () => {
+      pipVideoElement.addEventListener('leavepictureinpicture', () => {
         if (pipBtn) pipBtn.classList.remove('active');
       }, { once: true });
       return;
     }
 
-    // 5. Native fallback
+    // Direct native PiP fallback
     if (typeof video.requestPictureInPicture === 'function') {
       await video.requestPictureInPicture();
+      if (pipBtn) pipBtn.classList.add('active');
     }
   } catch (err) {
-    console.log('Pop-up failed:', err);
+    console.log('PiP toggle failed:', err);
+    // Direct native fallback
+    if (typeof video.requestPictureInPicture === 'function' && !document.pictureInPictureElement) {
+      try {
+        await video.requestPictureInPicture();
+        if (pipBtn) pipBtn.classList.add('active');
+      } catch (e) {}
+    }
   }
 }
 
@@ -334,11 +303,15 @@ video.addEventListener('canplay', () => {
   ensurePlaying();
 });
 
-// Neutralize manual seeking attempts to preserve live stream continuity
+// Block seeking attempts to enforce unbroken live stream experience
 video.addEventListener('seeking', () => {
   ensurePlaying();
   updateMediaSession();
 });
+
+// Disable browser context menu to prevent "Show controls"
+video.addEventListener('contextmenu', (e) => e.preventDefault());
+container.addEventListener('contextmenu', (e) => e.preventDefault());
 
 video.addEventListener('enterpictureinpicture', () => {
   if (pipBtn) pipBtn.classList.add('active');
@@ -349,7 +322,17 @@ video.addEventListener('leavepictureinpicture', () => {
   if (pipBtn) pipBtn.classList.remove('active');
 });
 
+// Keyboard controls: prevent seeking keys, support live shortcuts
 window.addEventListener('keydown', (e) => {
+  const tag = document.activeElement ? document.activeElement.tagName : '';
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(tag)) return;
+
+  // Block seek keys
+  if (['ArrowLeft', 'ArrowRight', 'Home', 'End', 'j', 'l', 'J', 'L'].includes(e.key)) {
+    e.preventDefault();
+    return;
+  }
+
   if (e.key === 'Escape' && sidePanel.classList.contains('open')) {
     setPanelOpen(false);
     return;
@@ -366,7 +349,7 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     togglePictureInPicture();
   }
-  if (e.key.toLowerCase() === 'm' && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+  if (e.key.toLowerCase() === 'm') {
     e.preventDefault();
     muteBtn.click();
   }
