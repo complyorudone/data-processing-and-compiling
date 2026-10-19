@@ -11,9 +11,8 @@
 </head>
 <body>
   <div class="video-container" id="videoContainer">
-    <!-- Hidden continuous stream source -->
     <video
-      id="streamSource"
+      id="mainVideo"
       src="videcl (1).mp4"
       playsinline
       webkit-playsinline
@@ -21,8 +20,8 @@
       autoplay
       muted
       loop
-      aria-hidden="true"
-      style="position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; z-index: -1;"
+      disablepictureinpicture
+      controlslist="nodownload noplaybackrate nopictureinpicture"
     >
       <track
         id="captionTrack"
@@ -33,15 +32,6 @@
         default
       >
     </video>
-
-    <!-- Main Live Stream Display (Receives continuous MediaStream with infinite live duration) -->
-    <video
-      id="mainVideo"
-      playsinline
-      webkit-playsinline
-      autoplay
-      muted
-    ></video>
 
     <div class="loading-overlay" id="loadingOverlay">
       <div class="spinner"></div>

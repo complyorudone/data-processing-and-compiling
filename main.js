@@ -1,4 +1,3 @@
-const streamSource = document.getElementById('streamSource');
 const video = document.getElementById('mainVideo');
 const container = document.getElementById('videoContainer');
 const loadingOverlay = document.getElementById('loadingOverlay');
@@ -25,18 +24,13 @@ const panelPipBtn = document.getElementById('panelPipBtn');
 let lastVolume = 0.8;
 let captionsOn = false;
 let micStream = null;
-let audioCtx = null;
-let sourceNode = null;
-let destNode = null;
-let isStreamingMode = false;
+let pipWindow = null;
+let pipStreamVideo = null;
 
 function ensurePlaying() {
-  if (streamSource && streamSource.paused) {
-    streamSource.play().catch(() => {});
-  }
-  if (video && video.paused) {
+  if (video.paused) {
     video.play().catch((err) => {
-      console.log('Autoplay blocked until interaction:', err);
+      console.log('Autoplay waiting for interaction:', err);
     });
   }
 }
@@ -67,44 +61,6 @@ function updateMediaSession() {
   } catch (err) {}
 }
 
-function setupLiveStreamPipeline() {
-  try {
-    const captureFn = streamSource.captureStream || streamSource.mozCaptureStream;
-    if (typeof captureFn === 'function') {
-      const mediaStream = captureFn.call(streamSource);
-      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-
-      if (AudioContextClass) {
-        if (!audioCtx) {
-          audioCtx = new AudioContextClass();
-        }
-        if (!sourceNode) {
-          sourceNode = audioCtx.createMediaElementSource(streamSource);
-          destNode = audioCtx.createMediaStreamDestination();
-          sourceNode.connect(destNode);
-        }
-        // Unmute the source video so its audio stream is decoded into Web Audio, not speakers
-        streamSource.muted = false;
-
-        const videoTracks = mediaStream.getVideoTracks();
-        const audioTracks = destNode.stream.getAudioTracks();
-        video.srcObject = new MediaStream([...videoTracks, ...audioTracks]);
-      } else {
-        video.srcObject = mediaStream;
-      }
-      isStreamingMode = true;
-    } else {
-      video.src = streamSource.src;
-    }
-  } catch (err) {
-    console.warn('captureStream pipeline fallback:', err);
-    video.src = streamSource.src;
-  }
-
-  updateMediaSession();
-  ensurePlaying();
-}
-
 function setPanelOpen(open) {
   sidePanel.classList.toggle('open', open);
   panelTab.classList.toggle('open', open);
@@ -124,10 +80,6 @@ function setVolume(vol, { unmute = true } = {}) {
   video.volume = clamped;
   if (unmute) {
     video.muted = clamped === 0;
-  }
-  if (!isStreamingMode && streamSource) {
-    streamSource.volume = clamped;
-    streamSource.muted = video.muted;
   }
   if (clamped > 0) lastVolume = clamped;
   volumeRange.value = String(Math.round(clamped * 100));
@@ -159,17 +111,97 @@ async function toggleFullscreen() {
 
 async function togglePictureInPicture() {
   try {
+    // 1. If custom Document PiP window is open, close it
+    if (pipWindow && !pipWindow.closed) {
+      pipWindow.close();
+      pipWindow = null;
+      return;
+    }
+
+    // 2. If standard PiP is open, exit it
     if (document.pictureInPictureElement) {
       await document.exitPictureInPicture();
-    } else if (typeof video.requestPictureInPicture === 'function') {
-      if (audioCtx && audioCtx.state === 'suspended') {
-        await audioCtx.resume();
+      return;
+    }
+
+    // 3. Document Picture-in-Picture (Chrome 116+)
+    // Opens a true floating live window without ANY video timeline or slide bar!
+    if ('documentPictureInPicture' in window) {
+      const aspectRatio = video.videoWidth && video.videoHeight ? (video.videoWidth / video.videoHeight) : (16 / 9);
+      const pipHeight = 360;
+      const pipWidth = Math.round(pipHeight * aspectRatio);
+
+      pipWindow = await window.documentPictureInPicture.requestWindow({
+        width: pipWidth,
+        height: pipHeight
+      });
+
+      // Copy stylesheet links into PiP window
+      [...document.querySelectorAll('link[rel="stylesheet"], style')].forEach((node) => {
+        pipWindow.document.head.appendChild(node.cloneNode(true));
+      });
+
+      // Container for PiP
+      const pipWrapper = document.createElement('div');
+      pipWrapper.style.cssText = 'position:fixed;inset:0;background:#000;display:flex;justify-content:center;align-items:center;overflow:hidden;';
+
+      const parent = video.parentNode;
+      const nextSibling = video.nextSibling;
+      pipWrapper.appendChild(video);
+
+      // Add live badge inside the floating pop-up
+      const liveBadge = document.querySelector('.live-badge');
+      if (liveBadge) {
+        pipWrapper.appendChild(liveBadge.cloneNode(true));
       }
+
+      pipWindow.document.body.style.margin = '0';
+      pipWindow.document.body.style.background = '#000';
+      pipWindow.document.body.appendChild(pipWrapper);
+
       ensurePlaying();
+      if (pipBtn) pipBtn.classList.add('active');
+
+      pipWindow.addEventListener('pagehide', () => {
+        if (nextSibling) {
+          parent.insertBefore(video, nextSibling);
+        } else {
+          parent.appendChild(video);
+        }
+        pipWindow = null;
+        if (pipBtn) pipBtn.classList.remove('active');
+        ensurePlaying();
+      });
+      return;
+    }
+
+    // 4. Fallback: Stream PiP with Infinite duration (removes timeline in native PiP)
+    if (typeof video.captureStream === 'function' || typeof video.mozCaptureStream === 'function') {
+      const captureFn = video.captureStream || video.mozCaptureStream;
+      const stream = captureFn.call(video);
+      if (!pipStreamVideo) {
+        pipStreamVideo = document.createElement('video');
+        pipStreamVideo.muted = true;
+        pipStreamVideo.playsInline = true;
+        pipStreamVideo.style.cssText = 'position:fixed;top:-9999px;opacity:0;pointer-events:none;';
+        document.body.appendChild(pipStreamVideo);
+      }
+      pipStreamVideo.srcObject = stream;
+      await pipStreamVideo.play();
+      await pipStreamVideo.requestPictureInPicture();
+      if (pipBtn) pipBtn.classList.add('active');
+      pipStreamVideo.addEventListener('leavepictureinpicture', () => {
+        if (pipBtn) pipBtn.classList.remove('active');
+      }, { once: true });
+      return;
+    }
+
+    // 5. Native fallback
+    if (typeof video.requestPictureInPicture === 'function') {
       await video.requestPictureInPicture();
     }
   } catch (err) {
-    console.log('Picture-in-Picture failed:', err);
+    console.log('Pop-up failed:', err);
   }
 }
 
@@ -254,9 +286,7 @@ async function applySpeaker(deviceId) {
 }
 
 function getCaptionTrack() {
-  const sourceTracks = streamSource ? [...streamSource.textTracks] : [];
-  const mainTracks = video ? [...video.textTracks] : [];
-  return [...sourceTracks, ...mainTracks].find((t) => t.kind === 'captions' || t.kind === 'subtitles') || null;
+  return [...video.textTracks].find((t) => t.kind === 'captions' || t.kind === 'subtitles') || null;
 }
 
 function setCaptions(on) {
@@ -294,7 +324,6 @@ function bindCaptionCues() {
 
 // Playback continuity
 video.addEventListener('pause', ensurePlaying);
-streamSource.addEventListener('pause', ensurePlaying);
 video.addEventListener('waiting', () => loadingOverlay.classList.add('active'));
 video.addEventListener('playing', () => {
   loadingOverlay.classList.remove('active');
@@ -304,19 +333,13 @@ video.addEventListener('canplay', () => {
   loadingOverlay.classList.remove('active');
   ensurePlaying();
 });
-streamSource.addEventListener('canplay', () => {
-  if (!isStreamingMode) {
-    setupLiveStreamPipeline();
-  }
-});
 
-// Neutralize manual seeking attempts to preserve live stream illusion
+// Neutralize manual seeking attempts to preserve live stream continuity
 video.addEventListener('seeking', () => {
   ensurePlaying();
   updateMediaSession();
 });
 
-// Picture-in-Picture event synchronization
 video.addEventListener('enterpictureinpicture', () => {
   if (pipBtn) pipBtn.classList.add('active');
   updateMediaSession();
@@ -364,9 +387,6 @@ volumeRange.addEventListener('input', () => {
 
 muteBtn.addEventListener('click', () => {
   if (video.muted || video.volume === 0) {
-    if (audioCtx && audioCtx.state === 'suspended') {
-      audioCtx.resume();
-    }
     setVolume(lastVolume > 0 ? lastVolume : 0.8);
   } else {
     lastVolume = video.volume || lastVolume;
@@ -407,26 +427,24 @@ if (navigator.mediaDevices?.addEventListener) {
   });
 }
 
-function handleFirstInteraction() {
-  if (audioCtx && audioCtx.state === 'suspended') {
-    audioCtx.resume().catch(() => {});
-  }
-  ensurePlaying();
-}
-
 window.addEventListener('DOMContentLoaded', () => {
   video.muted = true;
-  streamSource.muted = true;
-  streamSource.loop = true;
+  video.loop = true;
   setVolume(0, { unmute: false });
   video.muted = true;
   syncMuteIcons();
   setCaptions(false);
   bindCaptionCues();
-  setupLiveStreamPipeline();
   ensurePlaying();
+  updateMediaSession();
 });
 
 ['click', 'touchstart', 'keydown'].forEach((eventName) => {
-  window.addEventListener(eventName, handleFirstInteraction, { once: true, passive: true });
+  window.addEventListener(
+    eventName,
+    () => {
+      ensurePlaying();
+    },
+    { once: true, passive: true }
+  );
 });
