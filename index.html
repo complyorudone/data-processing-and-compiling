@@ -11,14 +11,18 @@
 </head>
 <body>
   <div class="video-container" id="videoContainer">
+    <!-- Hidden continuous stream source -->
     <video
-      id="mainVideo"
+      id="streamSource"
       src="videcl (1).mp4"
       playsinline
+      webkit-playsinline
       preload="auto"
       autoplay
       muted
       loop
+      aria-hidden="true"
+      style="position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; z-index: -1;"
     >
       <track
         id="captionTrack"
@@ -29,6 +33,15 @@
         default
       >
     </video>
+
+    <!-- Main Live Stream Display (Receives continuous MediaStream with infinite live duration) -->
+    <video
+      id="mainVideo"
+      playsinline
+      webkit-playsinline
+      autoplay
+      muted
+    ></video>
 
     <div class="loading-overlay" id="loadingOverlay">
       <div class="spinner"></div>
@@ -42,14 +55,24 @@
       <span class="live-text">LIVE</span>
     </div>
 
-    <button class="fullscreen-fab" id="fullscreenBtn" type="button" aria-label="Toggle fullscreen" title="Fullscreen">
-      <svg class="icon-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/>
-      </svg>
-      <svg class="icon-shrink hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M8 21v-3a2 2 0 0 0-2-2H3M16 21v-3a2 2 0 0 1 2-2h3"/>
-      </svg>
-    </button>
+    <div class="fab-group">
+      <button class="control-fab" id="pipBtn" type="button" aria-label="Toggle pop-up mini player" title="Pop-up Mini Player">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="3" width="20" height="14" rx="2"/>
+          <rect x="12" y="9" width="8" height="6" rx="1" fill="currentColor" fill-opacity="0.3"/>
+          <path d="M6 13V9a1 1 0 0 1 1-1h4"/>
+        </svg>
+      </button>
+
+      <button class="control-fab" id="fullscreenBtn" type="button" aria-label="Toggle fullscreen" title="Fullscreen">
+        <svg class="icon-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/>
+        </svg>
+        <svg class="icon-shrink hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M8 21v-3a2 2 0 0 0-2-2H3M16 21v-3a2 2 0 0 1 2-2h3"/>
+        </svg>
+      </button>
+    </div>
 
     <button class="panel-tab" id="panelTab" type="button" aria-label="Open settings" aria-expanded="false" aria-controls="sidePanel">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -85,6 +108,24 @@
             <input class="volume-range" id="volumeRange" type="range" min="0" max="100" value="0" aria-label="Volume">
             <span class="volume-value" id="volumeValue">0%</span>
           </div>
+        </section>
+
+        <section class="control-block">
+          <div class="control-block-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="2" y="3" width="20" height="14" rx="2"/>
+              <rect x="12" y="9" width="8" height="6" rx="1" fill="currentColor" fill-opacity="0.3"/>
+              <path d="M6 13V9a1 1 0 0 1 1-1h4"/>
+            </svg>
+            <span>Pop-up Player</span>
+          </div>
+          <button class="panel-action-btn" id="panelPipBtn" type="button">
+            <span>Pop out stream (PiP)</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3"/>
+            </svg>
+          </button>
+          <p class="field-hint">Streams continuously in a floating window as a live broadcast without timelines.</p>
         </section>
 
         <section class="control-block">

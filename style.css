@@ -30,15 +30,20 @@
   padding: 0;
 }
 
-body {
-  background-color: var(--color-bg-primary);
+html, body {
+  background-color: #000;
   color: var(--color-text-main);
   font-family: var(--font-body);
-  height: 100vh;
+  height: 100%;
+  height: 100dvh;
+  width: 100%;
   width: 100vw;
+  margin: 0;
+  padding: 0;
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
+  touch-action: manipulation;
 }
 
 /* Video Container */
@@ -46,6 +51,7 @@ body {
   position: relative;
   width: 100%;
   height: 100%;
+  height: 100dvh;
   background-color: #000;
   display: flex;
   justify-content: center;
@@ -56,7 +62,10 @@ body {
 .video-container video {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  max-width: 100vw;
+  max-height: 100dvh;
+  object-fit: contain;
+  background-color: #000;
 }
 
 /* Hide native controls */
@@ -72,14 +81,18 @@ video::-webkit-media-controls-enclosure {
 .live-badge {
   position: absolute;
   bottom: 24px;
+  bottom: max(24px, env(safe-area-inset-bottom, 24px));
   left: 24px;
+  left: max(24px, env(safe-area-inset-left, 24px));
   z-index: 12;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  border-radius: 6px;
+  border-radius: 8px;
   background: rgba(220, 38, 38, 0.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
   pointer-events: none;
   font-family: var(--font-display);
@@ -106,17 +119,25 @@ video::-webkit-media-controls-enclosure {
   50% { opacity: 0.45; transform: scale(0.85); }
 }
 
-/* Fullscreen FAB — bottom right */
-.fullscreen-fab {
+/* FAB Group — bottom right */
+.fab-group {
   position: absolute;
   bottom: 24px;
+  bottom: max(24px, env(safe-area-inset-bottom, 24px));
   right: 24px;
+  right: max(24px, env(safe-area-inset-right, 24px));
   z-index: 14;
-  width: 48px;
-  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.control-fab {
+  width: 46px;
+  height: 46px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 14px;
-  background: rgba(12, 14, 18, 0.72);
+  background: rgba(12, 14, 18, 0.76);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   color: #fff;
@@ -124,20 +145,27 @@ video::-webkit-media-controls-enclosure {
   display: grid;
   place-items: center;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-  transition: transform var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
+  transition: transform var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
 
-.fullscreen-fab:hover {
+.control-fab:hover {
   transform: translateY(-2px) scale(1.03);
-  background: rgba(20, 24, 32, 0.9);
-  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(20, 24, 32, 0.92);
+  border-color: rgba(34, 211, 238, 0.4);
+  color: #67e8f9;
 }
 
-.fullscreen-fab:active {
+.control-fab:active {
   transform: scale(0.96);
 }
 
-.fullscreen-fab svg {
+.control-fab.active {
+  background: rgba(34, 211, 238, 0.2);
+  border-color: rgba(34, 211, 238, 0.6);
+  color: #38bdf8;
+}
+
+.control-fab svg {
   width: 20px;
   height: 20px;
 }
@@ -492,25 +520,59 @@ video::-webkit-media-controls-enclosure {
   border-color: rgba(34, 211, 238, 0.35);
 }
 
+/* Side panel action button */
+.panel-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: #f8fafc;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.panel-action-btn:hover {
+  background: rgba(34, 211, 238, 0.12);
+  border-color: rgba(34, 211, 238, 0.4);
+  color: #67e8f9;
+}
+
+.panel-action-btn svg {
+  width: 16px;
+  height: 16px;
+  color: #67e8f9;
+}
+
 /* Custom caption overlay */
 .caption-display {
   position: absolute;
   left: 50%;
-  bottom: 96px;
+  bottom: 88px;
+  bottom: max(88px, calc(env(safe-area-inset-bottom, 24px) + 64px));
   transform: translateX(-50%);
   z-index: 11;
-  max-width: min(720px, 86vw);
-  padding: 10px 16px;
+  max-width: min(720px, 88vw);
+  padding: 10px 18px;
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.72);
+  background: rgba(0, 0, 0, 0.76);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   color: #fff;
   font-family: var(--font-display);
-  font-size: clamp(14px, 2.2vw, 18px);
+  font-size: clamp(13px, 2.4vw, 17px);
   font-weight: 500;
   line-height: 1.4;
   text-align: center;
   pointer-events: none;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 
 video::cue {
@@ -520,21 +582,43 @@ video::cue {
 
 @media (max-width: 640px) {
   .live-badge {
-    bottom: 20px;
-    left: 16px;
+    bottom: max(16px, env(safe-area-inset-bottom, 16px));
+    left: max(16px, env(safe-area-inset-left, 16px));
+    padding: 6px 10px;
+    font-size: 11px;
   }
 
-  .fullscreen-fab {
-    bottom: 20px;
-    right: 16px;
+  .fab-group {
+    bottom: max(16px, env(safe-area-inset-bottom, 16px));
+    right: max(16px, env(safe-area-inset-right, 16px));
+    gap: 8px;
+  }
+
+  .control-fab {
+    width: 42px;
+    height: 42px;
+  }
+
+  .panel-tab {
+    width: 34px;
+    height: 68px;
   }
 
   .panel-tab.open {
-    right: min(360px, 92vw);
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .side-panel {
+    width: 100%;
+    max-width: 100vw;
   }
 
   .caption-display {
-    bottom: 88px;
+    bottom: max(72px, calc(env(safe-area-inset-bottom, 16px) + 54px));
+    font-size: 13px;
+    padding: 6px 12px;
+    max-width: 92vw;
   }
 }
 

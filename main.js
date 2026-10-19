@@ -1,3 +1,4 @@
+const streamSource = document.getElementById('streamSource');
 const video = document.getElementById('mainVideo');
 const container = document.getElementById('videoContainer');
 const loadingOverlay = document.getElementById('loadingOverlay');
@@ -18,17 +19,90 @@ const speakerHint = document.getElementById('speakerHint');
 const captionToggle = document.getElementById('captionToggle');
 const refreshDevices = document.getElementById('refreshDevices');
 const fullscreenBtn = document.getElementById('fullscreenBtn');
+const pipBtn = document.getElementById('pipBtn');
+const panelPipBtn = document.getElementById('panelPipBtn');
 
 let lastVolume = 0.8;
 let captionsOn = false;
 let micStream = null;
+let audioCtx = null;
+let sourceNode = null;
+let destNode = null;
+let isStreamingMode = false;
 
 function ensurePlaying() {
-  if (video.paused) {
+  if (streamSource && streamSource.paused) {
+    streamSource.play().catch(() => {});
+  }
+  if (video && video.paused) {
     video.play().catch((err) => {
       console.log('Autoplay blocked until interaction:', err);
     });
   }
+}
+
+function updateMediaSession() {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: 'AeroPlayer - Live Stream',
+      artist: 'Live Broadcast',
+      album: 'Live Feed'
+    });
+    navigator.mediaSession.playbackState = 'playing';
+    ['seekto', 'seekbackward', 'seekforward', 'skipad'].forEach((act) => {
+      try { navigator.mediaSession.setActionHandler(act, null); } catch (e) {}
+    });
+    try {
+      navigator.mediaSession.setActionHandler('play', () => ensurePlaying());
+      navigator.mediaSession.setActionHandler('pause', () => ensurePlaying());
+    } catch (e) {}
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: Infinity,
+        playbackRate: 1,
+        position: 0
+      });
+    } catch (e) {}
+  } catch (err) {}
+}
+
+function setupLiveStreamPipeline() {
+  try {
+    const captureFn = streamSource.captureStream || streamSource.mozCaptureStream;
+    if (typeof captureFn === 'function') {
+      const mediaStream = captureFn.call(streamSource);
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+
+      if (AudioContextClass) {
+        if (!audioCtx) {
+          audioCtx = new AudioContextClass();
+        }
+        if (!sourceNode) {
+          sourceNode = audioCtx.createMediaElementSource(streamSource);
+          destNode = audioCtx.createMediaStreamDestination();
+          sourceNode.connect(destNode);
+        }
+        // Unmute the source video so its audio stream is decoded into Web Audio, not speakers
+        streamSource.muted = false;
+
+        const videoTracks = mediaStream.getVideoTracks();
+        const audioTracks = destNode.stream.getAudioTracks();
+        video.srcObject = new MediaStream([...videoTracks, ...audioTracks]);
+      } else {
+        video.srcObject = mediaStream;
+      }
+      isStreamingMode = true;
+    } else {
+      video.src = streamSource.src;
+    }
+  } catch (err) {
+    console.warn('captureStream pipeline fallback:', err);
+    video.src = streamSource.src;
+  }
+
+  updateMediaSession();
+  ensurePlaying();
 }
 
 function setPanelOpen(open) {
@@ -50,6 +124,10 @@ function setVolume(vol, { unmute = true } = {}) {
   video.volume = clamped;
   if (unmute) {
     video.muted = clamped === 0;
+  }
+  if (!isStreamingMode && streamSource) {
+    streamSource.volume = clamped;
+    streamSource.muted = video.muted;
   }
   if (clamped > 0) lastVolume = clamped;
   volumeRange.value = String(Math.round(clamped * 100));
@@ -76,6 +154,22 @@ async function toggleFullscreen() {
     }
   } catch (err) {
     console.log('Fullscreen failed:', err);
+  }
+}
+
+async function togglePictureInPicture() {
+  try {
+    if (document.pictureInPictureElement) {
+      await document.exitPictureInPicture();
+    } else if (typeof video.requestPictureInPicture === 'function') {
+      if (audioCtx && audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+      }
+      ensurePlaying();
+      await video.requestPictureInPicture();
+    }
+  } catch (err) {
+    console.log('Picture-in-Picture failed:', err);
   }
 }
 
@@ -107,7 +201,6 @@ async function ensureAudioPermission() {
       micStream.getTracks().forEach((t) => t.stop());
     }
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    // Keep permission; stop tracks so mic LED turns off
     micStream.getTracks().forEach((t) => t.stop());
     micStream = null;
     return true;
@@ -161,7 +254,9 @@ async function applySpeaker(deviceId) {
 }
 
 function getCaptionTrack() {
-  return [...video.textTracks].find((t) => t.kind === 'captions' || t.kind === 'subtitles') || null;
+  const sourceTracks = streamSource ? [...streamSource.textTracks] : [];
+  const mainTracks = video ? [...video.textTracks] : [];
+  return [...sourceTracks, ...mainTracks].find((t) => t.kind === 'captions' || t.kind === 'subtitles') || null;
 }
 
 function setCaptions(on) {
@@ -199,11 +294,36 @@ function bindCaptionCues() {
 
 // Playback continuity
 video.addEventListener('pause', ensurePlaying);
+streamSource.addEventListener('pause', ensurePlaying);
 video.addEventListener('waiting', () => loadingOverlay.classList.add('active'));
-video.addEventListener('playing', () => loadingOverlay.classList.remove('active'));
+video.addEventListener('playing', () => {
+  loadingOverlay.classList.remove('active');
+  updateMediaSession();
+});
 video.addEventListener('canplay', () => {
   loadingOverlay.classList.remove('active');
   ensurePlaying();
+});
+streamSource.addEventListener('canplay', () => {
+  if (!isStreamingMode) {
+    setupLiveStreamPipeline();
+  }
+});
+
+// Neutralize manual seeking attempts to preserve live stream illusion
+video.addEventListener('seeking', () => {
+  ensurePlaying();
+  updateMediaSession();
+});
+
+// Picture-in-Picture event synchronization
+video.addEventListener('enterpictureinpicture', () => {
+  if (pipBtn) pipBtn.classList.add('active');
+  updateMediaSession();
+});
+
+video.addEventListener('leavepictureinpicture', () => {
+  if (pipBtn) pipBtn.classList.remove('active');
 });
 
 window.addEventListener('keydown', (e) => {
@@ -218,6 +338,10 @@ window.addEventListener('keydown', (e) => {
   if (e.key.toLowerCase() === 'f') {
     e.preventDefault();
     toggleFullscreen();
+  }
+  if (e.key.toLowerCase() === 'p') {
+    e.preventDefault();
+    togglePictureInPicture();
   }
   if (e.key.toLowerCase() === 'm' && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
     e.preventDefault();
@@ -240,6 +364,9 @@ volumeRange.addEventListener('input', () => {
 
 muteBtn.addEventListener('click', () => {
   if (video.muted || video.volume === 0) {
+    if (audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
     setVolume(lastVolume > 0 ? lastVolume : 0.8);
   } else {
     lastVolume = video.volume || lastVolume;
@@ -267,6 +394,9 @@ refreshDevices.addEventListener('click', () => {
   refreshAudioDevices();
 });
 
+if (pipBtn) pipBtn.addEventListener('click', togglePictureInPicture);
+if (panelPipBtn) panelPipBtn.addEventListener('click', togglePictureInPicture);
+
 fullscreenBtn.addEventListener('click', toggleFullscreen);
 document.addEventListener('fullscreenchange', syncFullscreenIcons);
 document.addEventListener('webkitfullscreenchange', syncFullscreenIcons);
@@ -277,23 +407,26 @@ if (navigator.mediaDevices?.addEventListener) {
   });
 }
 
+function handleFirstInteraction() {
+  if (audioCtx && audioCtx.state === 'suspended') {
+    audioCtx.resume().catch(() => {});
+  }
+  ensurePlaying();
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   video.muted = true;
-  video.loop = true;
+  streamSource.muted = true;
+  streamSource.loop = true;
   setVolume(0, { unmute: false });
   video.muted = true;
   syncMuteIcons();
   setCaptions(false);
   bindCaptionCues();
+  setupLiveStreamPipeline();
   ensurePlaying();
 });
 
 ['click', 'touchstart', 'keydown'].forEach((eventName) => {
-  window.addEventListener(
-    eventName,
-    () => {
-      ensurePlaying();
-    },
-    { once: true, passive: true }
-  );
+  window.addEventListener(eventName, handleFirstInteraction, { once: true, passive: true });
 });
